@@ -1,0 +1,7 @@
+Create Venv:
+python3 -m venv "name"
+Enable Venv:
+source flaskenv/bin/activate
+Install dependencies:
+pip3 install "whatever"
+
