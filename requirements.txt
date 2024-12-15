@@ -1,0 +1,6 @@
+flask
+deepfilternet
+moviepy
+ffmpeg-python
+numpy
+scipy
