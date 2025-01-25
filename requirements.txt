@@ -4,3 +4,4 @@ moviepy
 ffmpeg-python
 numpy
 scipy
+speechbrain

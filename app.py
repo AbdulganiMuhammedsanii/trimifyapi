@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
-from routes import denoise, transcribe, silence_removal
+from routes import denoise, remove, transcribe
 
 app = Flask(__name__)
 
 # Register blueprints for modularity
 app.register_blueprint(denoise.bp, url_prefix='/denoise')
 app.register_blueprint(transcribe.bp, url_prefix='/transcribe')
-app.register_blueprint(silence_removal.bp, url_prefix='/process')
+app.register_blueprint(remove.bp, url_prefix='/remove')
 
 @app.route("/")
 def home():
