@@ -1,6 +1,0 @@
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_0_612cd8b8b0bc4273bc68a6dd31b5d461.mp4'
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_1_e80157076d7b4b3e87101fd5e8076abb.mp4'
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_2_0789ee933c884def93c260e2663fb6c2.mp4'
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_3_924823ae5f1f41168990284f3f737600.mp4'
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_4_442b191be24447cbbcb4d84e562da87b.mp4'
-file '/Users/abdimuha/Downloads/trimifyapi/trimifyapi/processed/segment_5_15c1caa033c84d4c9aaaf453f6775efc.mp4'

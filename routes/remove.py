@@ -14,9 +14,10 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 def remove_filler_words_video():
     """
     Receives a video file, transcribes it with OpenAI Whisper API (segment-level),
-    removes segments containing filler words, and returns a shortened video.
+    removes segments containing filler words, and returns a shortened video
+    with crossfade transitions between cuts.
     """
-    # Step 1: Save the uploaded file (e.g., .mp4)
+    # Step 1: Save the uploaded file
     file = request.files['video']  # Ensure your form field is named 'video'
     input_path = os.path.join('uploads', file.filename)
     os.makedirs('uploads', exist_ok=True)
@@ -35,22 +36,19 @@ def remove_filler_words_video():
     segments = transcript.get("segments", [])
 
     # Step 3: Define filler words
-    # Start with a minimal set to avoid over-filtering
     filler_words = {"uh", "um", "ah", "like", "you know", "so", "basically"}
 
-    # Step 4: Build a list of segments to keep (i.e., those that don't contain filler words)
+    # Step 4: Build a list of segments to keep
     keep_segments = []
     for seg in segments:
         seg_text = seg["text"].lower()
         start_s = seg["start"]  # in seconds
         end_s = seg["end"]      # in seconds
 
-        # Use regex to find whole word matches
+        # Check for filler words using regex
         contains_filler = False
         for fw in filler_words:
-            # Escape any regex special characters in filler words
             fw_escaped = re.escape(fw)
-            # For multi-word fillers like "you know", match them as a phrase
             pattern = r'\b' + fw_escaped + r'\b'
             if re.search(pattern, seg_text):
                 contains_filler = True
@@ -67,7 +65,7 @@ def remove_filler_words_video():
             "output": None
         }), 200
 
-    # Step 5: Use FFmpeg to cut each kept segment from the video with re-encoding
+    # Step 5: Cut each kept segment from the video
     temp_files = []
     for i, (start_s, end_s) in enumerate(keep_segments):
         segment_filename = f"segment_{i}_{uuid.uuid4().hex}.mp4"
@@ -75,15 +73,15 @@ def remove_filler_words_video():
 
         cmd_cut = [
             "ffmpeg",
-            "-y",               # Overwrite if exists
-            "-i", input_path,   # Input file
-            "-ss", str(start_s),# Start time
-            "-to", str(end_s),  # End time
-            "-c:v", "libx264",  # Re-encode video to H.264
-            "-c:a", "aac",      # Re-encode audio to AAC
-            "-preset", "fast",  # Encoding preset
-            "-crf", "22",       # Quality (lower is better)
-            segment_path        # Output segment
+            "-y",
+            "-i", input_path,
+            "-ss", str(start_s),
+            "-to", str(end_s),
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-preset", "fast",
+            "-crf", "22",
+            segment_path
         ]
         print(f"Running FFmpeg command: {' '.join(cmd_cut)}")
         try:
@@ -91,43 +89,93 @@ def remove_filler_words_video():
         except subprocess.CalledProcessError as e:
             print(f"FFmpeg error: {e.stderr.decode()}")
             return jsonify({"error": "FFmpeg failed during segment cutting."}), 500
+        
         temp_files.append(segment_path)
 
-    # Step 6: Create a concat list file for FFmpeg
-    concat_list_path = os.path.join("processed", f"concat_{uuid.uuid4().hex}.txt")
-    with open(concat_list_path, "w") as f:
-        for seg_file in temp_files:
-            f.write(f"file '{os.path.abspath(seg_file)}'\n")
-
-    # Step 7: Concatenate all segment files into one final video with re-encoding
+    # Step 6: If there's only one segment, we're done
     final_filename = f"no_fillers_{file.filename}"
     final_path = os.path.join("processed", final_filename)
+    if len(temp_files) == 1:
+        os.rename(temp_files[0], final_path)
+        return jsonify({
+            "message": "Filler segments removed (only one segment)!",
+            "output": final_path
+        }), 200
 
-    cmd_concat = [
-        "ffmpeg",
-        "-y",               # Overwrite if exists
-        "-f", "concat",     # Use concat demuxer
-        "-safe", "0",       # Allow absolute paths
-        "-i", concat_list_path, # Input concat list
-        "-c:v", "libx264",  # Ensure consistent codec
-        "-c:a", "aac",      # Ensure consistent codec
-        "-preset", "fast",  # Encoding preset
-        "-crf", "22",       # Quality
-        final_path          # Output final video
-    ]
-    print(f"Running FFmpeg concat command: {' '.join(cmd_concat)}")
-    try:
-        subprocess.run(cmd_concat, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        print(f"FFmpeg concat error: {e.stderr.decode()}")
-        return jsonify({"error": "FFmpeg failed during concatenation."}), 500
+    # Otherwise, pairwise crossfade the segments
+    CROSSFADE_DURATION = 0.5  # seconds of overlap
+    merged_path = temp_files[0]
 
-    # Step 8: Cleanup temporary segments and concat list
+    for i in range(1, len(temp_files)):
+        next_segment = temp_files[i]
+        temp_merged = os.path.join("processed", f"merged_{uuid.uuid4().hex}.mp4")
+
+        # Get the duration of the current merged file
+        probe_cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            merged_path
+        ]
+        try:
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+            duration_merged = float(result.stdout.strip())
+        except subprocess.CalledProcessError as e:
+            print(f"ffprobe error: {e.stderr}")
+            return jsonify({"error": "ffprobe failed to get video duration."}), 500
+
+        # The video crossfade offset: near the end of the current clip
+        offset = max(0, duration_merged - CROSSFADE_DURATION)
+
+        # Build filter_complex for video xfade + audio acrossfade (with resampling)
+        filter_complex = (
+            f"[0:v][1:v] xfade=transition=fade:duration={CROSSFADE_DURATION}:offset={offset}[v];"
+            f"[0:a]aresample=async=1:first_pts=0[a0];"
+            f"[1:a]aresample=async=1:first_pts=0[a1];"
+            f"[a0][a1]acrossfade=d={CROSSFADE_DURATION}[a]"
+        )
+
+        xfade_cmd = [
+            "ffmpeg", "-y",
+            "-i", merged_path,
+            "-i", next_segment,
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-map", "[a]",
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-preset", "fast",
+            "-crf", "22",
+            temp_merged
+        ]
+
+        print(f"Running FFmpeg crossfade command: {' '.join(xfade_cmd)}")
+        try:
+            subprocess.run(xfade_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            print(f"FFmpeg crossfade error: {e.stderr.decode()}")
+            return jsonify({"error": "FFmpeg failed during crossfade merging."}), 500
+
+        # Remove the old merged_path if not the very first segment file
+        if merged_path != temp_files[0]:
+            try:
+                os.remove(merged_path)
+            except OSError:
+                pass
+
+        merged_path = temp_merged
+
+    # Rename the final merged file to the final output
+    os.rename(merged_path, final_path)
+
+    # Clean up any leftover segment files
     for seg_file in temp_files:
-        os.remove(seg_file)
-    os.remove(concat_list_path)
+        if os.path.exists(seg_file):
+            os.remove(seg_file)
 
     return jsonify({
-        "message": "Filler segments removed from the video!",
+        "message": "Filler segments removed with crossfade transitions!",
         "output": final_path
-    })
+    }), 200
