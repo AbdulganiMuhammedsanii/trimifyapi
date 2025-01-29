@@ -16,6 +16,10 @@ def remove_filler_words_video():
     Receives a video file, transcribes it with OpenAI Whisper API (segment-level),
     removes segments containing filler words, and returns a shortened video
     with crossfade transitions between cuts.
+
+    Returns:
+    JSON with file path if successful.
+    Otherise, status code and error message.
     """
     # Step 1: Save the uploaded file
     file = request.files['video']  # Ensure your form field is named 'video'
@@ -158,7 +162,7 @@ def remove_filler_words_video():
             print(f"FFmpeg crossfade error: {e.stderr.decode()}")
             return jsonify({"error": "FFmpeg failed during crossfade merging."}), 500
 
-        # Remove the old merged_path if not the very first segment file
+        # Remove the old merged_path if not the first segment file
         if merged_path != temp_files[0]:
             try:
                 os.remove(merged_path)
@@ -170,7 +174,7 @@ def remove_filler_words_video():
     # Rename the final merged file to the final output
     os.rename(merged_path, final_path)
 
-    # Clean up any leftover segment files
+    # Clean up
     for seg_file in temp_files:
         if os.path.exists(seg_file):
             os.remove(seg_file)
